@@ -46,6 +46,7 @@ Advanced parameters (optional):
 - `template`: the full prompt or prompt template (overrides what is defined in the `Modelfile`)
 - `context`: the context parameter returned from a previous request to `/generate`, this can be used to keep a short conversational memory
 - `stream`: if `false` the response will be returned as a single response object, rather than a stream of objects
+- `raw`: if `true` no formatting will be applied to the prompt and no context will be returned. You may choose to use the `raw` parameter if you are specifying a full templated prompt in your request to the API, and are managing history yourself.
 
 ### Request
 
@@ -306,7 +307,7 @@ Then there is a series of downloading responses. Until any of the download is co
 {
   "status": "downloading digestname",
   "digest": "digestname",
-  "total": 2142590208, 
+  "total": 2142590208,
   "completed": 241970
 }
 ```
@@ -396,7 +397,7 @@ Finally, when the upload is complete:
 If `stream` is set to `false`, then the response is a single JSON object:
 
 ```json
-{"status":"success"}
+{ "status": "success" }
 ```
 
 ## Generate Embeddings
