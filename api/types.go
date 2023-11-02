@@ -30,18 +30,6 @@ func (e StatusError) Error() string {
 	}
 }
 
-type GenerateRequest struct {
-	Model    string `json:"model"`
-	Prompt   string `json:"prompt"`
-	System   string `json:"system"`
-	Template string `json:"template"`
-	Context  []int  `json:"context,omitempty"`
-	Stream   *bool  `json:"stream,omitempty"`
-	Raw      bool   `json:"raw,omitempty"`
-
-	Options map[string]interface{} `json:"options"`
-}
-
 type EmbeddingRequest struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`
@@ -116,6 +104,27 @@ type ModelResponse struct {
 
 type TokenResponse struct {
 	Token string `json:"token"`
+}
+
+type PromptHistory struct {
+	Prompt   string  `json:"prompt"`
+	Response string  `json:"response"`
+	System   *string `json:"system,omitempty"`
+	Template *string `json:"template,omitempty"`
+	First    bool    `json:"first,omitempty"`
+}
+
+type GenerateRequest struct {
+	Model    string          `json:"model"`
+	Prompt   string          `json:"prompt"`
+	System   string          `json:"system"`
+	Template string          `json:"template"`
+	Context  []int           `json:"context,omitempty"` // DEPRECATED: use history instead
+	History  []PromptHistory `json:"history,omitempty"`
+	Stream   *bool           `json:"stream,omitempty"`
+	Raw      bool            `json:"raw,omitempty"`
+
+	Options map[string]interface{} `json:"options"`
 }
 
 type GenerateResponse struct {

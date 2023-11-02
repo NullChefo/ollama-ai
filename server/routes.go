@@ -166,6 +166,9 @@ func GenerateHandler(c *gin.Context) {
 	case req.Raw && (req.Template != "" || req.System != "" || len(req.Context) > 0):
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "raw mode does not support template, system, or context"})
 		return
+	case (req.History != nil && len(req.History) > 0) && (req.Context != nil && len(req.Context) > 0):
+		// this makes rebuilding the prompt history too complicated, so don't allow it
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "only one of history and context may be specified"})
 	}
 	if req.Model == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "model is required"})
@@ -198,12 +201,60 @@ func GenerateHandler(c *gin.Context) {
 
 	checkpointLoaded := time.Now()
 
+	first := (req.Context == nil || len(req.Context) == 0) && (req.History == nil || len(req.History) == 0)
+
 	prompt := req.Prompt
 	if !req.Raw {
-		prompt, err = model.Prompt(req)
+		prompt, err = model.Prompt(PromptVars{
+			First:  first,
+			System: req.System,
+			Prompt: req.Prompt,
+		}, req.Template)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+	}
+
+	// TODO: context is deprecated, at some point the logic within this conditional should be removed
+	var context strings.Builder
+	sendContext := first || (req.Context != nil && len(req.Context) > 0)
+	if req.Context != nil {
+		// if the request has a context, decode it and add it to the prompt
+		prevCtx, err := loaded.runner.Decode(c.Request.Context(), req.Context)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Remove leading spaces from prevCtx if present
+		prevCtx = strings.TrimPrefix(prevCtx, " ")
+		context.WriteString(prevCtx)
+		context.WriteString(prompt)
+
+		prompt = context.String()
+	} else {
+		// build the prompt from the history
+		var history strings.Builder
+		for _, h := range req.History {
+			templateVars := PromptVars{
+				First:  h.First,
+				Prompt: h.Prompt,
+			}
+			if h.System != nil {
+				templateVars.System = *h.System
+			}
+			template := ""
+			if h.Template != nil {
+				template = *h.Template
+			}
+			p, err := model.Prompt(templateVars, template)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			// TODO: write the h.Response to history
+			history.WriteString(p)
 		}
 	}
 
@@ -222,9 +273,24 @@ func GenerateHandler(c *gin.Context) {
 
 			r.Model = req.Model
 			r.CreatedAt = time.Now().UTC()
+			// if the final response expects a context add the current response to it
+			if sendContext {
+				context.WriteString(r.Response)
+			}
+
 			if r.Done {
 				r.TotalDuration = time.Since(checkpointStart)
 				r.LoadDuration = checkpointLoaded.Sub(checkpointStart)
+				// if the response expects a context, encode it
+				if sendContext {
+					respCtx := fmt.Sprintf("%s%s", prompt, context.String())
+					embd, err := loaded.runner.Encode(c.Request.Context(), respCtx)
+					if err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+						return
+					}
+					r.Context = embd
+				}
 			}
 
 			if req.Raw {
@@ -235,7 +301,7 @@ func GenerateHandler(c *gin.Context) {
 			ch <- r
 		}
 
-		if err := loaded.runner.Predict(c.Request.Context(), req.Context, prompt, fn); err != nil {
+		if err := loaded.runner.Predict(c.Request.Context(), prompt, fn); err != nil {
 			ch <- gin.H{"error": err.Error()}
 		}
 	}()
